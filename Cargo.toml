@@ -1,0 +1,22 @@
+[package]
+name = "purity"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jorge Andre Castro"]
+description = "Bibliothèque légère de détection anti-bot et anti-spam pour le projet Hodoe — doublons, fréquence de publication, qualité du contenu."
+license = "GPL-2.0-or-later"
+repository = "https://github.com/tonuser/purity"
+readme = "README.md"
+keywords = ["anti-bot", "anti-spam", "moderation", "rate-limiting", "content"]
+categories = ["algorithms"]
+
+[lib]
+name = "purity"
+path = "src/lib.rs"
+
+[[example]]
+name = "moderation_flow"
+path = "examples/moderation_flow.rs"
+
+[dependencies]
+# Aucune dépendance externe : la lib repose uniquement sur std.
