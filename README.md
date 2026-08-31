@@ -41,7 +41,7 @@ if verdict.is_clean() {
 }
 ```
 
-`PurityGuard` maintient un état interne (empreintes vues, horodatages par auteur) — instanciez-le une seule fois et conservez-le pour la durée de vie de votre serveur (par exemple dans votre `AppState` Axum).
+`PurityGuard` maintient un état interne (empreintes vues, horodatages par auteur) instanciez-le une seule fois et conservez-le pour la durée de vie de votre serveur (par exemple dans votre `AppState` Axum).
 
 ## Personnaliser les seuils
 
