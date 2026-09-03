@@ -40,6 +40,20 @@
 //! let verdict2 = guard.evaluate("author_1", "Un vrai message authentique.", now + 1);
 //! assert!(verdict2.is_duplicate);
 //! ```
+//!
+//! ## Utilisation sans état (persistance externe)
+//!
+//! Si vous préférez stocker doublons et fréquence vous-même (par exemple en
+//! base de données, pour survivre aux redémarrages du serveur), utilisez
+//! [`content_fingerprint`] et [`evaluate_quality`] plutôt que [`PurityGuard`] :
+//!
+//! ```rust
+//! use purity::{content_fingerprint, evaluate_quality, PurityConfig};
+//!
+//! let fp = content_fingerprint("Un message à stocker en base");
+//! let quality = evaluate_quality("Un message à stocker en base", &PurityConfig::default());
+//! assert!(quality.is_clean());
+//! ```
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -191,6 +205,13 @@ impl PurityVerdict {
 /// Contrairement à `ethosfeed::EthosConfig` qui est sans état, `PurityGuard`
 /// maintient un historique par auteur (empreintes vues, horodatages d'actions)
 /// nécessaire pour détecter les doublons et le rate limiting dans le temps.
+///
+/// **Limite connue** : cet historique vit uniquement en mémoire du processus.
+/// Il est perdu à chaque redémarrage du serveur (déploiement, mise en veille
+/// d'une plateforme comme Render en plan gratuit, etc.). Si vous avez besoin
+/// que la détection de doublons et le rate limiting survivent aux
+/// redémarrages, préférez [`content_fingerprint`] et [`evaluate_quality`]
+/// combinés à votre propre persistance (ex: en base de données).
 pub struct PurityGuard {
     config: PurityConfig,
     seen_fingerprints: HashMap<String, HashSet<u64>>,
@@ -256,7 +277,6 @@ impl PurityGuard {
         let window_start = now.saturating_sub(self.config.rate_window_secs);
         let log = self.action_log.entry(author_id.to_string()).or_default();
 
-        // Purge les actions sorties de la fenêtre glissante.
         while let Some(&oldest) = log.front() {
             if oldest < window_start {
                 log.pop_front();
@@ -318,6 +338,74 @@ impl PurityGuard {
     }
 }
 
+/// Calcule l'empreinte d'un contenu de façon totalement indépendante de tout
+/// état interne. Utile pour stocker l'empreinte en base de données et faire
+/// de la détection de doublons persistante côté appelant.
+pub fn content_fingerprint(content: &str) -> u64 {
+    let normalized = content.trim().to_lowercase();
+    let mut hasher = DefaultHasher::new();
+    normalized.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Résultat de l'évaluation de la qualité d'un contenu, sans aucune notion
+/// d'historique (pas de doublon, pas de fréquence) — utile quand l'appelant
+/// gère lui-même la persistance de ces deux signaux (ex: en base de données)
+/// et ne veut de Purity que l'analyse du texte lui-même.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QualityVerdict {
+    /// `true` si le contenu est trop court pour être considéré comme significatif.
+    pub is_too_short: bool,
+    /// `true` si le contenu contient une proportion de majuscules excessive.
+    pub is_shouting: bool,
+    /// `true` si le contenu contient trop de liens.
+    pub has_link_spam: bool,
+    /// `true` si le contenu contient une répétition de caractère excessive.
+    pub has_char_spam: bool,
+}
+
+impl QualityVerdict {
+    /// Retourne `true` si aucun signal de qualité suspect n'a été détecté.
+    pub fn is_clean(&self) -> bool {
+        !self.is_too_short && !self.is_shouting && !self.has_link_spam && !self.has_char_spam
+    }
+
+    /// Retourne la liste des raisons de suspicion, sous forme lisible.
+    pub fn reasons(&self) -> Vec<&'static str> {
+        let mut reasons = Vec::new();
+        if self.is_too_short {
+            reasons.push("contenu trop court");
+        }
+        if self.is_shouting {
+            reasons.push("majuscules excessives");
+        }
+        if self.has_link_spam {
+            reasons.push("trop de liens");
+        }
+        if self.has_char_spam {
+            reasons.push("répétition de caractères excessive");
+        }
+        reasons
+    }
+}
+
+/// Analyse la qualité d'un contenu de façon totalement indépendante de tout
+/// historique (pas de détection de doublon, pas de rate limiting).
+///
+/// À utiliser quand l'appelant gère lui-même la persistance des doublons et
+/// de la fréquence de publication (par exemple en base de données), et ne
+/// veut de Purity que l'analyse du texte.
+pub fn evaluate_quality(content: &str, config: &PurityConfig) -> QualityVerdict {
+    let trimmed = content.trim();
+
+    QualityVerdict {
+        is_too_short: trimmed.chars().count() < config.min_content_length,
+        is_shouting: PurityGuard::uppercase_ratio(trimmed) > config.max_uppercase_ratio,
+        has_link_spam: PurityGuard::count_links(trimmed) > config.max_links,
+        has_char_spam: PurityGuard::max_repetition(trimmed) > config.max_char_repetition,
+    }
+}
+
 // ============================================================================
 // TESTS UNITAIRES
 // ============================================================================
@@ -364,7 +452,7 @@ mod tests {
         let second = guard.evaluate("author_2", content, 1001);
 
         assert!(!first.is_duplicate);
-        assert!(!second.is_duplicate); // auteurs différents, pas de conflit
+        assert!(!second.is_duplicate);
     }
 
     #[test]
@@ -393,7 +481,6 @@ mod tests {
         let limited = guard.evaluate("author_1", "c", 1002);
         assert!(limited.is_rate_limited);
 
-        // Bien après la fin de la fenêtre : la limite ne s'applique plus.
         let after_window = guard.evaluate("author_1", "d", 1020);
         assert!(!after_window.is_rate_limited);
     }
@@ -467,5 +554,29 @@ mod tests {
         assert_eq!(config.max_links, 1);
         assert_eq!(config.max_uppercase_ratio, 0.9);
         assert_eq!(config.rate_limit_max_actions, PurityConfig::default().rate_limit_max_actions);
+    }
+
+    #[test]
+    fn test_content_fingerprint_matches_case_and_whitespace_insensitive() {
+        let fp1 = content_fingerprint("  Bonjour Le Monde  ");
+        let fp2 = content_fingerprint("bonjour le monde");
+        assert_eq!(fp1, fp2);
+    }
+
+    #[test]
+    fn test_evaluate_quality_is_stateless() {
+        let config = PurityConfig::default();
+
+        let first = evaluate_quality("Un message authentique.", &config);
+        let second = evaluate_quality("Un message authentique.", &config);
+        assert_eq!(first, second);
+        assert!(first.is_clean());
+    }
+
+    #[test]
+    fn test_evaluate_quality_detects_shouting() {
+        let config = PurityConfig::default();
+        let verdict = evaluate_quality("ACHETEZ MAINTENANT VITE VITE", &config);
+        assert!(verdict.is_shouting);
     }
 }
