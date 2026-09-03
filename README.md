@@ -26,7 +26,7 @@ Aucune dépendance externe : la bibliothèque repose uniquement sur `std`.
 
 ## Deux façons d'utiliser Purity
 
-### Avec état — `PurityGuard`
+### Avec état  `PurityGuard`
 
 Le plus simple : `PurityGuard` garde l'historique des publications en mémoire (empreintes vues, horodatages par auteur) et détecte doublons et excès de fréquence automatiquement.
 
@@ -49,7 +49,7 @@ Instanciez `PurityGuard` une seule fois et conservez-le pour la durée de vie de
 
 **Limite à connaître** : cet historique vit uniquement en mémoire du processus. Il est perdu à chaque redémarrage du serveur (déploiement, mise en veille d'une plateforme comme Render en plan gratuit, etc.). Si vous avez besoin que la détection de doublons et le rate limiting survivent aux redémarrages, utilisez plutôt les fonctions sans état ci-dessous, combinées à votre propre persistance.
 
-### Sans état — `content_fingerprint` et `evaluate_quality`
+### Sans état `content_fingerprint` et `evaluate_quality`
 
 Nouveau en 0.2.0. Si vous préférez stocker doublons et fréquence vous-même (par exemple dans votre base de données, aux côtés de vos publications), utilisez ces deux fonctions indépendantes de tout état interne :
 
