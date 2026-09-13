@@ -5,7 +5,7 @@
 [![docs.rs](https://docs.rs/purity/badge.svg)](https://docs.rs/purity)
 [![License](https://img.shields.io/crates/l/purity.svg)](LICENSE)
 
-Bibliothèque de détection anti-bot et anti-spam légère, conçue pour le projet **Hodoe**. Trois signaux complémentaires, combinés en un seul verdict par publication.
+Bibliothèque de détection anti-bot et anti-spam légère, conçue pour [Hodoe](https://hodoe.fr), le réseau social axé sur les connexions humaines authentiques et les échanges à valeur réelle. Trois signaux complémentaires, combinés en un seul verdict par publication.
 
 ## Les trois signaux
 
